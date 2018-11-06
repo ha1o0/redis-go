@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-var zeroParamCommands = []string{"PING"}
+var zeroParamCommands = []string{"PING", "EXIT"}
 var oneParamCommands = []string{"GET"}
 var twoParamCommands = []string{"SET"}
 var commands = map[string][]string{
@@ -19,6 +19,7 @@ var commandsMap = map[string]string{
 	"PING": "*1",
 	"GET": "*2",
 	"SET": "*3",
+	"EXIT": "*1",
 }
 type key interface{}
 type value interface{}
@@ -47,6 +48,7 @@ func chkError(err error) {
 	}
 }
 
+// handle the tcp message from client
 func handleStuff(conn net.Conn) {
 	buf := make([]byte, 1024)
 	defer conn.Close()
@@ -79,6 +81,7 @@ func handleCommands(reqArr []string, conn net.Conn) {
 	handleCommand(reqArr, commandName, conn)
 }
 
+// handle the right command from client
 func handleCommand(reqArr []string, commandName string, conn net.Conn) {
     switch commandName {
     case "PING":
@@ -93,12 +96,15 @@ func handleCommand(reqArr []string, commandName string, conn net.Conn) {
     case "SET":
         valueMap[reqArr[4]] = reqArr[6]
         conn.Write([]byte("+OK\r\n"))
+    case "EXIT":
+        conn.Close()
     default:
         conn.Write([]byte("+OTHER COMMAND\r\n"))
     }
     fmt.Println("this connect end")
 }
 
+// handle the error of the command from client
 func handleCommandError(errorCode int, commandName string, conn net.Conn) {
 	switch errorCode {
 	case 1200:
@@ -111,6 +117,7 @@ func handleCommandError(errorCode int, commandName string, conn net.Conn) {
 	fmt.Println("this connect end")
 }
 
+// Judge if the element exists in array
 func contains(arr []string, str string) bool {
 	for _, a := range arr {
 		if a == str {
