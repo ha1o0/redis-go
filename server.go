@@ -1,37 +1,50 @@
 package main
 
 import (
-    "fmt"
-    "log"
-    "net"
-    "reflect"
-    "strings"
+	"fmt"
+	"log"
+	"net"
+	"reflect"
+	"strconv"
+	"strings"
 )
 
-var zeroParamCommands = []string{"PING", "EXIT"}
-var oneParamCommands = []string{"GET"}
-var twoParamCommands = []string{"SET"}
-var commands = map[string][]string{
-	"*1": zeroParamCommands,
-	"*2": oneParamCommands,
-	"*3": twoParamCommands,
-}
+//var zeroParamCommands = []string{"PING", "EXIT"}
+//var oneParamCommands = []string{"GET", "EXISTS", "DEL"}
+//var twoParamCommands = []string{"SET"}
+//var atLeastThreeParamCommands = []string{"RPUSH"}
+//var commands = map[string][]string{
+//	"*1": zeroParamCommands,
+//	"*2": oneParamCommands,
+//	"*3": twoParamCommands,
+//}
 var commandsMap = map[string]string{
-	"PING": "*1",
-	"GET": "*2",
-	"SET": "*3",
-	"EXIT": "*1",
+	"PING": "1",
+	"GET": "2",
+	"SET": "3",
+	"EXISTS": "2",
+	"DEL": "2",
+	"RPUSH": ">=3",
+	"RPOP": "2",
+	"LPOP": "2",
+	"LLEN": "2",
+	"EXIT": "1",
 }
 
 var commandReflect = map[string]interface{}{
     "ping": ping,
-    "exit": exit,
     "get": get,
     "set": set,
+    "exists": exists,
+    "del": del,
+    "rpush": rpush,
+    "rpop": rpop,
+    "lpop": lpop,
+    "llen": llen,
+	"exit": exit,
 }
 
-type key interface{}
-var valueMap = make(map[key]string)
+var valueMap = make(map[string]interface{})
 
 func main() {
 	fmt.Println("Start the tcp socket")
@@ -52,7 +65,7 @@ func startTcpServer() {
 
 func chkError(err error) {
 	if err != nil {
-		log.Fatal(err);
+		log.Fatal(err)
 	}
 }
 
@@ -78,42 +91,30 @@ func handleStuff(conn net.Conn) {
 }
 
 func handleCommands(reqArr []string, conn net.Conn) {
-	paramNumber := reqArr[0]
+	paramNumberStr := reqArr[0]
 	commandName := strings.ToUpper(reqArr[2])
 	_, ok := commandsMap[commandName]
 	if !ok {
 		handleCommandError(1000, commandName, conn)
 		return
 	}
-	if commandsMap[commandName] != paramNumber {
-		handleCommandError(1001, commandName, conn)
-		return
+	paramNumber, _ := strconv.ParseInt(strings.TrimPrefix(paramNumberStr, "*"), 0, 64)
+	paramRequireNumberStr := commandsMap[commandName]
+	if strings.Contains(paramRequireNumberStr, ">=") {
+		paramRequireNumber, _ := strconv.ParseInt(strings.TrimPrefix(paramRequireNumberStr, ">="), 0, 64)
+		if paramNumber < paramRequireNumber {
+			handleCommandError(1001, commandName, conn)
+			return
+		}
+		Apply(commandReflect[strings.ToLower(commandName)], []interface{}{reqArr, conn, int(paramNumber)})
+	} else {
+		paramRequireNumber, _ := strconv.ParseInt(paramRequireNumberStr, 0, 64)
+		if paramRequireNumber != paramNumber {
+			handleCommandError(1001, commandName, conn)
+			return
+		}
+		Apply(commandReflect[strings.ToLower(commandName)], []interface{}{reqArr, conn})
 	}
-	//handleCommand(reqArr, commandName, conn)
-    Apply(commandReflect[strings.ToLower(commandName)], []interface{}{reqArr, conn})
-}
-
-// handle the right command from client
-func handleCommand(reqArr []string, commandName string, conn net.Conn) {
-   switch commandName {
-   case "PING":
-       conn.Write([]byte("+PONG\r\n"))
-   case "GET":
-       result, ok := valueMap[reqArr[4]]
-       if !ok {
-           conn.Write([]byte("+(nil)\r\n"))
-       } else {
-           conn.Write([]byte("+\"" + result + "\"\r\n"))
-       }
-   case "SET":
-       valueMap[reqArr[4]] = reqArr[6]
-       conn.Write([]byte("+OK\r\n"))
-   case "EXIT":
-       conn.Close()
-   default:
-       conn.Write([]byte("+OTHER COMMAND\r\n"))
-   }
-   fmt.Println("this connect end")
 }
 
 func ping(reqArr []string, conn net.Conn) {
@@ -134,8 +135,89 @@ func get(reqArr []string, conn net.Conn) {
     if !ok {
         conn.Write([]byte("+(nil)\r\n"))
     } else {
-        conn.Write([]byte("+\"" + result + "\"\r\n"))
+        conn.Write([]byte("+\"" + result.(string) + "\"\r\n"))
     }
+}
+
+func exists(reqArr []string, conn net.Conn) {
+	_, ok := valueMap[reqArr[4]]
+	result := "0"
+	if ok {
+		result = "1"
+	}
+	conn.Write([]byte(":" + result + "\r\n"))
+}
+
+func del(reqArr []string, conn net.Conn) {
+	_, ok := valueMap[reqArr[4]]
+	result := "0"
+	if ok {
+		result = "1"
+		delete(valueMap, reqArr[4])
+	}
+	conn.Write([]byte(":" + result + "\r\n"))
+}
+
+func rpush(reqArr []string, conn net.Conn, paramNumber int) {
+	sliceTemp, ok := valueMap[reqArr[4]]
+	valueNumber := paramNumber - 2
+	if ok {
+		for i := 1; i <= valueNumber; i++ {
+			sliceTemp = append(sliceTemp.([]interface{}), reqArr[2 * i + 4])
+		}
+		valueMap[reqArr[4]] = sliceTemp
+		conn.Write([]byte(":" + strconv.Itoa(len(sliceTemp.([]interface{}))) + "\r\n"))
+	} else {
+		newSliceTemp := []interface{}{}
+		for i := 1; i <= valueNumber; i++ {
+			fmt.Println(reqArr[2 * i + 4])
+			newSliceTemp = append(newSliceTemp, reqArr[2 * i + 4])
+			fmt.Println(newSliceTemp)
+		}
+		valueMap[reqArr[4]] = newSliceTemp
+		conn.Write([]byte(":" + strconv.Itoa(valueNumber) + "\r\n"))
+	}
+}
+
+func rpop(reqArr []string, conn net.Conn) {
+	sliceTemp, ok := valueMap[reqArr[4]]
+	if ok {
+		sliceLength := len(sliceTemp.([]interface{}))
+		lastElement := sliceTemp.([]interface{})[sliceLength - 1].(string)
+		if sliceLength == 1 {
+			delete(valueMap, reqArr[4])
+		} else {
+			valueMap[reqArr[4]] = sliceTemp.([]interface{})[:sliceLength-1]
+		}
+		conn.Write([]byte("+\"" + lastElement + "\"\r\n"))
+	} else {
+		conn.Write([]byte("+(nil)\r\n"))
+	}
+}
+
+func lpop(reqArr []string, conn net.Conn) {
+	sliceTemp, ok := valueMap[reqArr[4]]
+	if ok {
+		sliceLength := len(sliceTemp.([]interface{}))
+		firstElement := sliceTemp.([]interface{})[0].(string)
+		if sliceLength == 1 {
+			delete(valueMap, reqArr[4])
+		} else {
+			valueMap[reqArr[4]] = sliceTemp.([]interface{})[1:sliceLength]
+		}
+		conn.Write([]byte("+\"" + firstElement + "\"\r\n"))
+	} else {
+		conn.Write([]byte("+(nil)\r\n"))
+	}
+}
+
+func llen(reqArr []string, conn net.Conn) {
+	sliceTemp, ok := valueMap[reqArr[4]]
+	sliceLength := 0
+	if ok {
+		sliceLength = len(sliceTemp.([]interface{}))
+	}
+	conn.Write([]byte(":" + strconv.Itoa(sliceLength) + "\r\n"))
 }
 
 func Apply(f interface{}, args []interface{})([]reflect.Value){
