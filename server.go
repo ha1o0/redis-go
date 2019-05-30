@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"time"
 )
 
 //var zeroParamCommands = []string{"PING", "EXIT"}
@@ -22,6 +23,9 @@ var commandsMap = map[string]string{
 	"PING": "1",
 	"GET": "2",
 	"SET": "3",
+	"EXPIRE": "3",
+	"SETEX": "4",
+	"SETNX": "3",
 	"EXISTS": "2",
 	"DEL": "2",
 	"RPUSH": ">=3",
@@ -38,6 +42,9 @@ var commandReflect = map[string]interface{}{
     "ping": ping,
     "get": get,
     "set": set,
+    "expire": expire,
+    "setex": setex,
+    "setnx": setnx,
     "exists": exists,
     "del": del,
     "rpush": rpush,
@@ -158,8 +165,55 @@ func get(reqArr []string, conn net.Conn) {
     if !ok {
 		response(conn, 2, "(nil)")
     } else {
+		if !checkIfString(result) {
+			handleCommandError(1002, "get", conn)
+			return
+		}
 		response(conn, 1, result.(string))
     }
+}
+
+func expire(reqArr []string, conn net.Conn) {
+	keyString := reqArr[4]
+	_, ok := valueMap[keyString]
+	result := 0
+	if !ok {
+		response(conn, 0, result)
+		return
+	}
+	expireSeconds, err := strconv.ParseInt(reqArr[6], 0, 64)
+	if err != nil {
+		handleCommandError(1003, "expire", conn)
+		return
+	}
+	result = 1
+	response(conn, 0, result)
+	// start a new thread to exec the timer
+	go setExpireTimer(keyString, int(expireSeconds))
+}
+
+func setex(reqArr []string, conn net.Conn) {
+	keyString := reqArr[4]
+	expireSeconds, err := strconv.ParseInt(reqArr[6], 0, 64)
+	if err != nil {
+		handleCommandError(1003, "expire", conn)
+		return
+	}
+	valueMap[keyString] = reqArr[8]
+	response(conn, 2, "OK")
+	// start a new thread to exec the timer
+	go setExpireTimer(keyString, int(expireSeconds))
+}
+
+func setnx(reqArr []string, conn net.Conn) {
+	result := 0
+	keyString := reqArr[4]
+	_, ok := valueMap[keyString]
+	if !ok {
+		valueMap[keyString] = reqArr[6]
+		result = 1
+	}
+	response(conn, 0, result)
 }
 
 func exists(reqArr []string, conn net.Conn) {
@@ -185,6 +239,10 @@ func rpush(reqArr []string, conn net.Conn, paramNumber int) {
 	sliceTemp, ok := valueMap[reqArr[4]]
 	valueNumber := paramNumber - 2
 	if ok {
+		if !checkIfSlice(sliceTemp) {
+			handleCommandError(1002, "rpush", conn)
+			return
+		}
 		for i := 1; i <= valueNumber; i++ {
 			sliceTemp = append(sliceTemp.([]interface{}), reqArr[2 * i + 4])
 		}
@@ -253,7 +311,7 @@ func lindex(reqArr []string, conn net.Conn) {
 	if ok {
 		fmt.Println(reflect.TypeOf(sliceTemp).String())
 		// judge if target value is slice
-		if !strings.Contains(reflect.TypeOf(sliceTemp).String(), "[]") {
+		if !checkIfSlice(sliceTemp) {
 			handleCommandError(1002, "lindex", conn)
 			return
 		}
@@ -285,7 +343,7 @@ func lrange(reqArr []string, conn net.Conn) {
 	if ok {
 		fmt.Println(reflect.TypeOf(sliceTemp).String())
 		// judge if target value is slice
-		if !strings.Contains(reflect.TypeOf(sliceTemp).String(), "[]") {
+		if !checkIfSlice(sliceTemp) {
 			handleCommandError(1002, "lrange", conn)
 			return
 		}
@@ -326,7 +384,7 @@ func ltrim(reqArr []string, conn net.Conn) {
 	if ok {
 		fmt.Println(reflect.TypeOf(sliceTemp).String())
 		// judge if target value is slice
-		if !strings.Contains(reflect.TypeOf(sliceTemp).String(), "[]") {
+		if !checkIfSlice(sliceTemp) {
 			handleCommandError(1002, "ltrim", conn)
 			return
 		}
@@ -342,19 +400,20 @@ func ltrim(reqArr []string, conn net.Conn) {
 		}
 		valueMap[reqArr[4]] = targetSlice[startPositionIndex:endPositionIndex + 1]
 		response(conn, 2, "OK")
-		//if positionSub <= targetSliceLength / 2 {
-		//	newSlice := []interface{}
-		//	for i:= startPositionIndex; i<= endPositionIndex; i++ {
-		//		newSlice = append(newSlice, targetSlice[i])
-		//	}
-		//	valueMap[reqArr[4]] = newSlice
-		//	response(conn, 2, "OK")
-		//} else {
-		//
-		//}
-		//
 	} else {
 		response(conn, 2, "(empty list or set)")
+	}
+}
+
+func setExpireTimer(keyString string, expireSeconds int) {
+	expireTimer := time.NewTimer(time.Duration(int(expireSeconds)) * time.Second)
+	select {
+	case <-expireTimer.C:
+		_, ok := valueMap[keyString]
+		if !ok {
+			return
+		}
+		delete(valueMap, keyString)
 	}
 }
 
@@ -399,6 +458,14 @@ func handleCommandError(errorCode int, commandName string, conn net.Conn) {
 		conn.Write([]byte("+(error) unknown error\r\n"))
 	}
 	fmt.Println("this connect end")
+}
+
+func checkIfString(target interface{}) bool {
+	return reflect.TypeOf(target).String() == "string"
+}
+
+func checkIfSlice(target interface{}) bool {
+	return strings.Contains(reflect.TypeOf(target).String(), "[]")
 }
 
 func getPositiveIndex(startPositionIndex int, endPositionIndex int, targetSliceLength int) (int, int) {
