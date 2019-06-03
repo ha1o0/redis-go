@@ -1,24 +1,18 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net"
+	"os"
 	"reflect"
 	"strconv"
 	"strings"
 	"time"
 )
 
-//var zeroParamCommands = []string{"PING", "EXIT"}
-//var oneParamCommands = []string{"GET", "EXISTS", "DEL"}
-//var twoParamCommands = []string{"SET"}
-//var atLeastThreeParamCommands = []string{"RPUSH"}
-//var commands = map[string][]string{
-//	"*1": zeroParamCommands,
-//	"*2": oneParamCommands,
-//	"*3": twoParamCommands,
-//}
 var commandsMap = map[string]string{
 	"PING": "1",
 	"GET": "2",
@@ -35,6 +29,8 @@ var commandsMap = map[string]string{
 	"LINDEX": "3",
 	"LRANGE": "4",
 	"LTRIM": "4",
+	"SAVE": "1",
+	"RESGRDB": "1",
 	"EXIT": "1",
 }
 
@@ -54,30 +50,34 @@ var commandReflect = map[string]interface{}{
     "lindex": lindex,
     "lrange": lrange,
     "ltrim": ltrim,
-	"exit": exit,
+    "save": save,
+    "resgrdb": resgrdb,
+    "exit": exit,
 }
 
 var valueMap = make(map[string]interface{})
+const originDumpFileName = "./dump.json"
 
 func main() {
 	fmt.Println("Start the tcp socket")
 	fmt.Println(len("aaa"))
+	resgrdb()
 	startTcpServer()
 }
 
 func startTcpServer() {
 	tcpAddr, err := net.ResolveTCPAddr("tcp4", "127.0.0.1:6378")
-	chkError(err)
+	checkError(err)
 	listener, err := net.ListenTCP("tcp", tcpAddr)
-	chkError(err)
+	checkError(err)
 	for {
 		conn, err := listener.AcceptTCP()
-		chkError(err)
+		checkError(err)
 		go handleStuff(conn)
 	}
 }
 
-func chkError(err error) {
+func checkError(err error) {
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -90,7 +90,7 @@ func handleStuff(conn net.Conn) {
 	for {
 		n, err := conn.Read(buf)
 		fmt.Println("req", n)
-		chkError(err)
+		checkError(err)
 		rAddr := conn.RemoteAddr()
 		fmt.Println(rAddr.String())
 		req := string(buf[:n])
@@ -148,6 +148,9 @@ func handleCommands(reqArr []string, conn net.Conn) {
 }
 
 func ping(reqArr []string, conn net.Conn) {
+	jsonString := "{\"a\":\"hello\",\"b\":\"123\",\"books\":[\"1\",\"a\",\"9\",\"4\"]}"
+	_, result := json2Map(jsonString)
+	valueMap = result
 	response(conn, 2, "PONG")
 }
 
@@ -417,6 +420,52 @@ func setExpireTimer(keyString string, expireSeconds int) {
 	}
 }
 
+func save(reqArr []string, conn net.Conn) {
+	response(conn, 2, "OK")
+	go saveGrdb()
+}
+
+func saveGrdb() {
+
+	dumpJsonExist := checkFileIsExist(originDumpFileName)
+	code, storeString := map2Json(valueMap)
+	if code != 0 {
+		fmt.Println("error occurs when map to json")
+		return
+	}
+	targetFileName := originDumpFileName
+	if dumpJsonExist {
+		targetFileName = originDumpFileName + ".temp"
+	}
+	err := ioutil.WriteFile(targetFileName, []byte(storeString), 0666) //写入文件(字节数组)
+	checkError(err)
+	if dumpJsonExist {
+		err = os.Remove(originDumpFileName)
+		checkError(err)
+		err = os.Rename(targetFileName, originDumpFileName)
+		checkError(err)
+	}
+}
+
+func resgrdb() {
+	dumpJsonExist := checkFileIsExist(originDumpFileName)
+	if !dumpJsonExist {
+		return
+	}
+	content, err := ioutil.ReadFile(originDumpFileName)
+	if err != nil {
+		fmt.Println("ioutil ReadFile error: ", err)
+		return
+	}
+	fmt.Println("content: ", string(content))
+	code, result := json2Map(string(content))
+	if code != 0 {
+		fmt.Println("error occurs when json to map")
+		return
+	}
+	valueMap = result
+}
+
 func Apply(f interface{}, args []interface{})([]reflect.Value){
     fun := reflect.ValueOf(f)
     in := make([]reflect.Value, len(args))
@@ -465,7 +514,8 @@ func checkIfString(target interface{}) bool {
 }
 
 func checkIfSlice(target interface{}) bool {
-	return strings.Contains(reflect.TypeOf(target).String(), "[]")
+	typeString := reflect.TypeOf(target).String()
+	return strings.Contains(typeString, "[]") && !strings.Contains(typeString, "map")
 }
 
 func getPositiveIndex(startPositionIndex int, endPositionIndex int, targetSliceLength int) (int, int) {
@@ -498,3 +548,41 @@ func contains(arr []string, str string) bool {
 	return false
 }
 
+// Store and Restore between json and map
+func map2Json(mapTarget map[string]interface{}) (int, string) {
+	jsonResult, err := json.Marshal(mapTarget)
+	if err != nil {
+		return 1, ""
+	}
+	fmt.Println(string(jsonResult))
+	return 0, string(jsonResult)
+	//for _, v := range mapTarget {
+	//	vType := reflect.TypeOf(v).String()
+	//
+	//	if strings.Contains(vType, "map") {
+	//
+	//	}
+	//}
+	//return 0, ""
+}
+
+func json2Map(jsonString string) (int, map[string]interface{}) {
+	mapResult := make(map[string]interface{})
+	err := json.Unmarshal([]byte(jsonString), &mapResult)
+	if err != nil {
+		return 1, make(map[string]interface{})
+	}
+	return 0, mapResult
+}
+
+/**
+ * check if the dump json exists
+ */
+func checkFileIsExist(filename string) bool {
+	exist := true
+	_, err := os.Stat(filename)
+	if os.IsNotExist(err) {
+		exist = false
+	}
+	return exist
+}
