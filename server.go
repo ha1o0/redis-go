@@ -31,6 +31,10 @@ var commandsMap = map[string]string{
 	"LTRIM": "4",
 	"SAVE": "1",
 	"RESGRDB": "1",
+	"HSET": "4",
+	"HGETALL": "2",
+	"HGET": "3",
+	"HLEN": "2",
 }
 
 var commandReflect = map[string]interface{}{
@@ -51,15 +55,22 @@ var commandReflect = map[string]interface{}{
     "ltrim": ltrim,
     "save": save,
     "resgrdb": resgrdb,
+    "hset": hset,
+    "hgetall": hgetall,
+    "hget": hget,
+    "hlen": hlen,
 }
 
 var valueMap = make(map[string]interface{})
 const originDumpFileName = "./dump.json"
 const socketAP = "127.0.0.1:6378"
+const saveInterval = 60
 
 func main() {
-	fmt.Println("Start the tcp socket")
+	fmt.Println(time.Now(),":Server initialized")
+	checkIfMap(valueMap)
 	resgrdb()
+	go saveCron()
 	startTcpServer()
 }
 
@@ -87,8 +98,9 @@ func handleStuff(conn net.Conn) {
 	defer conn.Close()
 	for {
 		n, err := conn.Read(buf)
-		fmt.Println("req", n)
+		fmt.Println(time.Now(),":req", n)
 		if n == 0 || err != nil {
+			saveGrdb()
 			break
 		}
 		checkError(err)
@@ -97,7 +109,7 @@ func handleStuff(conn net.Conn) {
 		req := string(buf[:n])
 		reqArr := strings.Split(req, "\r\n")
 		reqArr = reqArr[0:len(reqArr)-1]
-		fmt.Println("receive the client message：", reqArr)
+		fmt.Println(time.Now(),":receive the client message：", reqArr)
 		handleCommands(reqArr, conn)
 	}
 }
@@ -145,14 +157,25 @@ func handleCommands(reqArr []string, conn net.Conn) {
 	}
 }
 
+func saveCron() {
+	intervalDuration := time.Duration(saveInterval) * time.Second
+	expireTimer := time.NewTimer(intervalDuration)
+	select {
+	case <-expireTimer.C:
+		go saveGrdb()
+		expireTimer.Reset(intervalDuration)
+	}
+}
+
 func ping(reqArr []string, conn net.Conn) {
-	jsonString := "{\"a\":\"hello\",\"b\":\"123\",\"books\":[\"1\",\"a\",\"9\",\"4\"]}"
-	_, result := json2Map(jsonString)
-	valueMap = result
+	//jsonString := "{\"a\":\"hello\",\"b\":\"123\",\"books\":[\"1\",\"a\",\"9\",\"4\"]}"
+	//_, result := json2Map(jsonString)
+	//valueMap = result
 	response(conn, 2, "PONG")
 }
 
 func set(reqArr []string, conn net.Conn) {
+	fmt.Println(reqArr[6])
     valueMap[reqArr[4]] = reqArr[6]
 	response(conn, 2, "OK")
 }
@@ -163,7 +186,7 @@ func get(reqArr []string, conn net.Conn) {
 		response(conn, 2, "(nil)")
     } else {
 		if !checkIfString(result) {
-			handleCommandError(1002, "get", conn)
+			handleCommandError(1002, strings.ToUpper(reqArr[2]), conn)
 			return
 		}
 		response(conn, 1, result.(string))
@@ -180,7 +203,7 @@ func expire(reqArr []string, conn net.Conn) {
 	}
 	expireSeconds, err := strconv.ParseInt(reqArr[6], 0, 64)
 	if err != nil {
-		handleCommandError(1003, "expire", conn)
+		handleCommandError(1003, strings.ToUpper(reqArr[2]), conn)
 		return
 	}
 	result = 1
@@ -193,7 +216,7 @@ func setex(reqArr []string, conn net.Conn) {
 	keyString := reqArr[4]
 	expireSeconds, err := strconv.ParseInt(reqArr[6], 0, 64)
 	if err != nil {
-		handleCommandError(1003, "expire", conn)
+		handleCommandError(1003, strings.ToUpper(reqArr[2]), conn)
 		return
 	}
 	valueMap[keyString] = reqArr[8]
@@ -237,7 +260,7 @@ func rpush(reqArr []string, conn net.Conn, paramNumber int) {
 	valueNumber := paramNumber - 2
 	if ok {
 		if !checkIfSlice(sliceTemp) {
-			handleCommandError(1002, "rpush", conn)
+			handleCommandError(1002, strings.ToUpper(reqArr[2]), conn)
 			return
 		}
 		for i := 1; i <= valueNumber; i++ {
@@ -301,7 +324,7 @@ func llen(reqArr []string, conn net.Conn) {
 func lindex(reqArr []string, conn net.Conn) {
 	index, err := strconv.ParseInt(reqArr[6], 0, 64)
 	if err != nil {
-		handleCommandError(1003, "lindex", conn)
+		handleCommandError(1003, strings.ToUpper(reqArr[2]), conn)
 		return
 	}
 	sliceTemp, ok := valueMap[reqArr[4]]
@@ -309,7 +332,7 @@ func lindex(reqArr []string, conn net.Conn) {
 		fmt.Println(reflect.TypeOf(sliceTemp).String())
 		// judge if target value is slice
 		if !checkIfSlice(sliceTemp) {
-			handleCommandError(1002, "lindex", conn)
+			handleCommandError(1002, strings.ToUpper(reqArr[2]), conn)
 			return
 		}
 		positionIndex := int(index)
@@ -333,7 +356,7 @@ func lrange(reqArr []string, conn net.Conn) {
 	startIndex, startErr := strconv.ParseInt(reqArr[6], 0, 64)
 	endIndex, endErr := strconv.ParseInt(reqArr[8], 0, 64)
 	if startErr != nil || endErr != nil {
-		handleCommandError(1003, "lrange", conn)
+		handleCommandError(1003, strings.ToUpper(reqArr[2]), conn)
 		return
 	}
 	sliceTemp, ok := valueMap[reqArr[4]]
@@ -341,7 +364,7 @@ func lrange(reqArr []string, conn net.Conn) {
 		fmt.Println(reflect.TypeOf(sliceTemp).String())
 		// judge if target value is slice
 		if !checkIfSlice(sliceTemp) {
-			handleCommandError(1002, "lrange", conn)
+			handleCommandError(1002, strings.ToUpper(reqArr[2]), conn)
 			return
 		}
 		startPositionIndex := int(startIndex)
@@ -374,7 +397,7 @@ func ltrim(reqArr []string, conn net.Conn) {
 	startIndex, startErr := strconv.ParseInt(reqArr[6], 0, 64)
 	endIndex, endErr := strconv.ParseInt(reqArr[8], 0, 64)
 	if startErr != nil || endErr != nil {
-		handleCommandError(1003, "ltrim", conn)
+		handleCommandError(1003, strings.ToUpper(reqArr[2]), conn)
 		return
 	}
 	sliceTemp, ok := valueMap[reqArr[4]]
@@ -382,7 +405,7 @@ func ltrim(reqArr []string, conn net.Conn) {
 		fmt.Println(reflect.TypeOf(sliceTemp).String())
 		// judge if target value is slice
 		if !checkIfSlice(sliceTemp) {
-			handleCommandError(1002, "ltrim", conn)
+			handleCommandError(1002, strings.ToUpper(reqArr[2]), conn)
 			return
 		}
 		startPositionIndex := int(startIndex)
@@ -414,17 +437,99 @@ func setExpireTimer(keyString string, expireSeconds int) {
 	}
 }
 
+func hset(reqArr []string, conn net.Conn) {
+	key := reqArr[4]
+	keyMapKey := reqArr[6]
+	keyMapValue := reqArr[8]
+	valueTemp, ok := valueMap[key]
+	result := 0
+	if ok {
+		if !checkIfMap(valueTemp) {
+			handleCommandError(1002, strings.ToUpper(reqArr[2]), conn)
+			return
+		}
+
+		_, okk := valueTemp.(map[string]interface{})[keyMapKey]
+		if !okk {
+			result = 1
+		}
+	} else {
+		valueTemp = make(map[string]interface{})
+		result = 1
+	}
+
+	valueTemp.(map[string]interface{})[keyMapKey] = keyMapValue
+	valueMap[key] = valueTemp
+	fmt.Println(map2Json(valueMap))
+	response(conn, 0, result)
+}
+
+func hgetall(reqArr []string, conn net.Conn) {
+	key := reqArr[4]
+	valueTemp, ok := valueMap[key]
+	if !ok {
+		response(conn, 2, "(empty list or set)")
+		return
+	}
+	if !checkIfMap(valueTemp) {
+		handleCommandError(1002, strings.ToUpper(reqArr[2]), conn)
+		return
+	}
+	result := ""
+	j := 1
+	for mapKey, mapKeyValue := range valueTemp.(map[string]interface{}) {
+		commonResult := strconv.Itoa(j) + ") \"" + mapKey + "\"\n"
+		commonResult += strconv.Itoa(j + 1) + ") \"" + mapKeyValue.(string) + "\"\n"
+		result += commonResult
+		j += 2
+	}
+	response(conn, 2, result[0: len(result) - 1])
+}
+
+func hget(reqArr []string, conn net.Conn) {
+	key := reqArr[4]
+	keyMapKey := reqArr[6]
+	valueTemp, ok := valueMap[key]
+	if !ok || !checkIfMap(valueTemp) {
+		handleCommandError(1002, strings.ToUpper(reqArr[2]), conn)
+		return
+	}
+	keyMapValue, okk := valueTemp.(map[string]interface{})[keyMapKey]
+	if !okk {
+		response(conn, 2, "(nil)")
+		return
+	}
+	response(conn, 1, keyMapValue)
+}
+
+func hlen(reqArr []string, conn net.Conn) {
+	key := reqArr[4]
+	valueTemp, ok := valueMap[key]
+	count := 0
+	if !ok {
+		response(conn, 0, count)
+		return
+	}
+	if !checkIfMap(valueTemp) {
+		handleCommandError(1002, strings.ToUpper(reqArr[2]), conn)
+		return
+	}
+	for range valueTemp.(map[string]interface{}) {
+		count++
+	}
+	response(conn, 0, count)
+}
+
 func save(reqArr []string, conn net.Conn) {
 	response(conn, 2, "OK")
 	go saveGrdb()
 }
 
 func saveGrdb() {
-
 	dumpJsonExist := checkFileIsExist(originDumpFileName)
 	code, storeString := map2Json(valueMap)
 	if code != 0 {
-		fmt.Println("error occurs when map to json")
+		fmt.Println(time.Now(),":error occurs when map to json")
 		return
 	}
 	targetFileName := originDumpFileName
@@ -448,16 +553,17 @@ func resgrdb() {
 	}
 	content, err := ioutil.ReadFile(originDumpFileName)
 	if err != nil {
-		fmt.Println("ioutil ReadFile error: ", err)
+		fmt.Println(time.Now(),":ioutil ReadFile error: ", err)
 		return
 	}
-	//fmt.Println("content: ", string(content))
+	//fmt.Println(time.Now(),":content: ", string(content))
 	code, result := json2Map(string(content))
 	if code != 0 {
-		fmt.Println("error occurs when json to map")
+		fmt.Println(time.Now(),":error occurs when json to map")
 		return
 	}
 	valueMap = result
+	fmt.Println(time.Now(),":DB loaded from disk")
 }
 
 func Apply(f interface{}, args []interface{})([]reflect.Value){
@@ -500,7 +606,11 @@ func handleCommandError(errorCode int, commandName string, conn net.Conn) {
 	default:
 		conn.Write([]byte("+(error) unknown error\r\n"))
 	}
-	fmt.Println("this connect end")
+	//fmt.Println(time.Now(),":this connect end")
+}
+
+func checkIfMap(target interface{}) bool {
+	return strings.Contains(reflect.TypeOf(target).String(), "map")
 }
 
 func checkIfString(target interface{}) bool {
