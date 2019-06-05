@@ -31,7 +31,6 @@ var commandsMap = map[string]string{
 	"LTRIM": "4",
 	"SAVE": "1",
 	"RESGRDB": "1",
-	"EXIT": "1",
 }
 
 var commandReflect = map[string]interface{}{
@@ -52,21 +51,20 @@ var commandReflect = map[string]interface{}{
     "ltrim": ltrim,
     "save": save,
     "resgrdb": resgrdb,
-    "exit": exit,
 }
 
 var valueMap = make(map[string]interface{})
 const originDumpFileName = "./dump.json"
+const socketAP = "127.0.0.1:6378"
 
 func main() {
 	fmt.Println("Start the tcp socket")
-	fmt.Println(len("aaa"))
 	resgrdb()
 	startTcpServer()
 }
 
 func startTcpServer() {
-	tcpAddr, err := net.ResolveTCPAddr("tcp4", "127.0.0.1:6378")
+	tcpAddr, err := net.ResolveTCPAddr("tcp4", socketAP)
 	checkError(err)
 	listener, err := net.ListenTCP("tcp", tcpAddr)
 	checkError(err)
@@ -90,6 +88,9 @@ func handleStuff(conn net.Conn) {
 	for {
 		n, err := conn.Read(buf)
 		fmt.Println("req", n)
+		if n == 0 || err != nil {
+			break
+		}
 		checkError(err)
 		rAddr := conn.RemoteAddr()
 		fmt.Println(rAddr.String())
@@ -97,9 +98,6 @@ func handleStuff(conn net.Conn) {
 		reqArr := strings.Split(req, "\r\n")
 		reqArr = reqArr[0:len(reqArr)-1]
 		fmt.Println("receive the client message：", reqArr)
-		if reqArr[2] == "COMMAND" {
-            break
-        }
 		handleCommands(reqArr, conn)
 	}
 }
@@ -152,10 +150,6 @@ func ping(reqArr []string, conn net.Conn) {
 	_, result := json2Map(jsonString)
 	valueMap = result
 	response(conn, 2, "PONG")
-}
-
-func exit(reqArr []string, conn net.Conn) {
-    conn.Close()
 }
 
 func set(reqArr []string, conn net.Conn) {
@@ -457,7 +451,7 @@ func resgrdb() {
 		fmt.Println("ioutil ReadFile error: ", err)
 		return
 	}
-	fmt.Println("content: ", string(content))
+	//fmt.Println("content: ", string(content))
 	code, result := json2Map(string(content))
 	if code != 0 {
 		fmt.Println("error occurs when json to map")
