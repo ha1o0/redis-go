@@ -35,6 +35,7 @@ var commandsMap = map[string]string{
 	"HGETALL": "2",
 	"HGET": "3",
 	"HLEN": "2",
+	"HMSET": ">=4%", //%偶数#奇数
 }
 
 var commandReflect = map[string]interface{}{
@@ -59,6 +60,7 @@ var commandReflect = map[string]interface{}{
     "hgetall": hgetall,
     "hget": hget,
     "hlen": hlen,
+    "hmset": hmset,
 }
 
 var valueMap = make(map[string]interface{})
@@ -130,18 +132,32 @@ func handleCommands(reqArr []string, conn net.Conn) {
 	}
 	paramRequireNumberStr := commandsMap[commandName]
 	if strings.Contains(paramRequireNumberStr, ">=") {
-		paramRequireNumber, err := strconv.ParseInt(strings.TrimPrefix(paramRequireNumberStr, ">="), 0, 64)
-		if err != nil {
-			/// to do
-			handleCommandError(0, commandName, conn)
-			return
-		}
-		if paramNumber < paramRequireNumber {
-			handleCommandError(1001, commandName, conn)
-			return
+		numberStr := strings.TrimPrefix(paramRequireNumberStr, ">=")
+		if strings.Contains(paramRequireNumberStr, "%") {
+			numberStr = strings.Trim(numberStr, "%")
+			paramRequireNumber, err := strconv.ParseInt(numberStr, 0, 64)
+			if err != nil {
+				/// to do
+				handleCommandError(0, commandName, conn)
+				return
+			}
+			if paramNumber < paramRequireNumber || paramNumber % 2 != 0 {
+				handleCommandError(1001, commandName, conn)
+				return
+			}
+		} else {
+			paramRequireNumber, err := strconv.ParseInt(strings.TrimPrefix(paramRequireNumberStr, ">="), 0, 64)
+			if err != nil {
+				/// to do
+				handleCommandError(0, commandName, conn)
+				return
+			}
+			if paramNumber < paramRequireNumber {
+				handleCommandError(1001, commandName, conn)
+				return
+			}
 		}
 		Apply(commandReflect[strings.ToLower(commandName)], []interface{}{reqArr, conn, int(paramNumber)})
-
 	} else {
 		paramRequireNumber, err := strconv.ParseInt(paramRequireNumberStr, 0, 64)
 		if err != nil {
@@ -448,7 +464,6 @@ func hset(reqArr []string, conn net.Conn) {
 			handleCommandError(1002, strings.ToUpper(reqArr[2]), conn)
 			return
 		}
-
 		_, okk := valueTemp.(map[string]interface{})[keyMapKey]
 		if !okk {
 			result = 1
@@ -457,10 +472,8 @@ func hset(reqArr []string, conn net.Conn) {
 		valueTemp = make(map[string]interface{})
 		result = 1
 	}
-
 	valueTemp.(map[string]interface{})[keyMapKey] = keyMapValue
 	valueMap[key] = valueTemp
-	fmt.Println(map2Json(valueMap))
 	response(conn, 0, result)
 }
 
@@ -518,6 +531,31 @@ func hlen(reqArr []string, conn net.Conn) {
 		count++
 	}
 	response(conn, 0, count)
+}
+
+func hmset(reqArr []string, conn net.Conn, paramNumber int) {
+	key := reqArr[4]
+	valueTemp, ok := valueMap[key]
+	result := 0
+	if ok {
+		if !checkIfMap(valueTemp) {
+			handleCommandError(1002, strings.ToUpper(reqArr[2]), conn)
+			return
+		}
+	} else {
+		valueTemp = make(map[string]interface{})
+	}
+	for i := 0; i < (paramNumber - 2) / 2; i++ {
+		keyMapKey := reqArr[6 + 4 * i]
+		keyMapValue := reqArr[8 + 4* i]
+		_, okk := valueTemp.(map[string]interface{})[keyMapKey]
+		if !okk {
+			result++
+		}
+		valueTemp.(map[string]interface{})[keyMapKey] = keyMapValue
+	}
+	valueMap[key] = valueTemp
+	response(conn, 0, result)
 }
 
 func save(reqArr []string, conn net.Conn) {
