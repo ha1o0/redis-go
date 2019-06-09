@@ -14,7 +14,7 @@ import (
 )
 
 type command struct {
-	ParamNumber string
+	ParamNumber string //%偶数#奇数
 	Function interface{}
 }
 
@@ -40,58 +40,8 @@ var commandsMap = map[string]command {
 	"HGETALL": {"2", hgetall},
 	"HGET": {"3", hget},
 	"HLEN": {"2", hlen},
-	"HMSET": {">=4%", hmset},//%偶数#奇数
+	"HMSET": {">=4%", hmset},
 }
-
-//var commandsMap = map[string]string{
-//	"PING": "1",
-//	"GET": "2",
-//	"SET": "3",
-//	"EXPIRE": "3",
-//	"SETEX": "4",
-//	"SETNX": "3",
-//	"EXISTS": "2",
-//	"DEL": "2",
-//	"RPUSH": ">=3",
-//	"RPOP": "2",
-//	"LPOP": "2",
-//	"LLEN": "2",
-//	"LINDEX": "3",
-//	"LRANGE": "4",
-//	"LTRIM": "4",
-//	"SAVE": "1",
-//	"RESGRDB": "1",
-//	"HSET": "4",
-//	"HGETALL": "2",
-//	"HGET": "3",
-//	"HLEN": "2",
-//	"HMSET": ">=4%", //%偶数#奇数
-//}
-
-//var commandReflect = map[string]interface{}{
-//    "ping": ping,
-//    "get": get,
-//    "set": set,
-//    "expire": expire,
-//    "setex": setex,
-//    "setnx": setnx,
-//    "exists": exists,
-//    "del": del,
-//    "rpush": rpush,
-//    "rpop": rpop,
-//    "lpop": lpop,
-//    "llen": llen,
-//    "lindex": lindex,
-//    "lrange": lrange,
-//    "ltrim": ltrim,
-//    "save": save,
-//    "resgrdb": resgrdb,
-//    "hset": hset,
-//    "hgetall": hgetall,
-//    "hget": hget,
-//    "hlen": hlen,
-//    "hmset": hmset,
-//}
 
 var valueMap = make(map[string]interface{})
 const originDumpFileName = "./dump.json"
