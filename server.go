@@ -13,53 +13,96 @@ import (
 	"time"
 )
 
-var commandsMap = map[string]string{
-	"PING": "1",
-	"GET": "2",
-	"SET": "3",
-	"EXPIRE": "3",
-	"SETEX": "4",
-	"SETNX": "3",
-	"EXISTS": "2",
-	"DEL": "2",
-	"RPUSH": ">=3",
-	"RPOP": "2",
-	"LPOP": "2",
-	"LLEN": "2",
-	"LINDEX": "3",
-	"LRANGE": "4",
-	"LTRIM": "4",
-	"SAVE": "1",
-	"RESGRDB": "1",
+type command struct {
+	ParamNumber string
+	Function interface{}
 }
 
-var commandReflect = map[string]interface{}{
-    "ping": ping,
-    "get": get,
-    "set": set,
-    "expire": expire,
-    "setex": setex,
-    "setnx": setnx,
-    "exists": exists,
-    "del": del,
-    "rpush": rpush,
-    "rpop": rpop,
-    "lpop": lpop,
-    "llen": llen,
-    "lindex": lindex,
-    "lrange": lrange,
-    "ltrim": ltrim,
-    "save": save,
-    "resgrdb": resgrdb,
+var commandsMap = map[string]command {
+	"PING": {"1", ping},
+	"GET": {"2", get},
+	"SET": {"3", set},
+	"EXPIRE": {"3", expire},
+	"SETEX": {"4", setex},
+	"SETNX": {"3", setnx},
+	"EXISTS": {"2", exists},
+	"DEL": {"2", del},
+	"RPUSH": {">=3", rpush},
+	"RPOP": {"2", rpop},
+	"LPOP": {"2", lpop},
+	"LLEN": {"2", llen},
+	"LINDEX": {"3", lindex},
+	"LRANGE": {"4", lrange},
+	"LTRIM": {"4", ltrim},
+	"SAVE": {"1", save},
+	"RESGRDB": {"1", resgrdb},
+	"HSET": {"4", hset},
+	"HGETALL": {"2", hgetall},
+	"HGET": {"3", hget},
+	"HLEN": {"2", hlen},
+	"HMSET": {">=4%", hmset},//%偶数#奇数
 }
+
+//var commandsMap = map[string]string{
+//	"PING": "1",
+//	"GET": "2",
+//	"SET": "3",
+//	"EXPIRE": "3",
+//	"SETEX": "4",
+//	"SETNX": "3",
+//	"EXISTS": "2",
+//	"DEL": "2",
+//	"RPUSH": ">=3",
+//	"RPOP": "2",
+//	"LPOP": "2",
+//	"LLEN": "2",
+//	"LINDEX": "3",
+//	"LRANGE": "4",
+//	"LTRIM": "4",
+//	"SAVE": "1",
+//	"RESGRDB": "1",
+//	"HSET": "4",
+//	"HGETALL": "2",
+//	"HGET": "3",
+//	"HLEN": "2",
+//	"HMSET": ">=4%", //%偶数#奇数
+//}
+
+//var commandReflect = map[string]interface{}{
+//    "ping": ping,
+//    "get": get,
+//    "set": set,
+//    "expire": expire,
+//    "setex": setex,
+//    "setnx": setnx,
+//    "exists": exists,
+//    "del": del,
+//    "rpush": rpush,
+//    "rpop": rpop,
+//    "lpop": lpop,
+//    "llen": llen,
+//    "lindex": lindex,
+//    "lrange": lrange,
+//    "ltrim": ltrim,
+//    "save": save,
+//    "resgrdb": resgrdb,
+//    "hset": hset,
+//    "hgetall": hgetall,
+//    "hget": hget,
+//    "hlen": hlen,
+//    "hmset": hmset,
+//}
 
 var valueMap = make(map[string]interface{})
 const originDumpFileName = "./dump.json"
 const socketAP = "127.0.0.1:6378"
+const saveInterval = 60
 
 func main() {
-	fmt.Println("Start the tcp socket")
+	fmt.Println(time.Now(),":Server initialized")
+	checkIfMap(valueMap)
 	resgrdb()
+	go saveCron()
 	startTcpServer()
 }
 
@@ -87,8 +130,9 @@ func handleStuff(conn net.Conn) {
 	defer conn.Close()
 	for {
 		n, err := conn.Read(buf)
-		fmt.Println("req", n)
+		fmt.Println(time.Now(),":req", n)
 		if n == 0 || err != nil {
+			saveGrdb()
 			break
 		}
 		checkError(err)
@@ -97,7 +141,7 @@ func handleStuff(conn net.Conn) {
 		req := string(buf[:n])
 		reqArr := strings.Split(req, "\r\n")
 		reqArr = reqArr[0:len(reqArr)-1]
-		fmt.Println("receive the client message：", reqArr)
+		fmt.Println(time.Now(),":receive the client message：", reqArr)
 		handleCommands(reqArr, conn)
 	}
 }
@@ -105,7 +149,7 @@ func handleStuff(conn net.Conn) {
 func handleCommands(reqArr []string, conn net.Conn) {
 	paramNumberStr := reqArr[0]
 	commandName := strings.ToUpper(reqArr[2])
-	_, ok := commandsMap[commandName]
+	commandStruct, ok := commandsMap[commandName]
 	if !ok {
 		handleCommandError(1000, commandName, conn)
 		return
@@ -116,20 +160,34 @@ func handleCommands(reqArr []string, conn net.Conn) {
 		handleCommandError(0, commandName, conn)
 		return
 	}
-	paramRequireNumberStr := commandsMap[commandName]
+	paramRequireNumberStr := commandStruct.ParamNumber
 	if strings.Contains(paramRequireNumberStr, ">=") {
-		paramRequireNumber, err := strconv.ParseInt(strings.TrimPrefix(paramRequireNumberStr, ">="), 0, 64)
-		if err != nil {
-			/// to do
-			handleCommandError(0, commandName, conn)
-			return
+		numberStr := strings.TrimPrefix(paramRequireNumberStr, ">=")
+		if strings.Contains(paramRequireNumberStr, "%") {
+			numberStr = strings.Trim(numberStr, "%")
+			paramRequireNumber, err := strconv.ParseInt(numberStr, 0, 64)
+			if err != nil {
+				/// to do
+				handleCommandError(0, commandName, conn)
+				return
+			}
+			if paramNumber < paramRequireNumber || paramNumber % 2 != 0 {
+				handleCommandError(1001, commandName, conn)
+				return
+			}
+		} else {
+			paramRequireNumber, err := strconv.ParseInt(strings.TrimPrefix(paramRequireNumberStr, ">="), 0, 64)
+			if err != nil {
+				/// to do
+				handleCommandError(0, commandName, conn)
+				return
+			}
+			if paramNumber < paramRequireNumber {
+				handleCommandError(1001, commandName, conn)
+				return
+			}
 		}
-		if paramNumber < paramRequireNumber {
-			handleCommandError(1001, commandName, conn)
-			return
-		}
-		Apply(commandReflect[strings.ToLower(commandName)], []interface{}{reqArr, conn, int(paramNumber)})
-
+		Apply(commandStruct.Function, []interface{}{reqArr, conn, int(paramNumber)})
 	} else {
 		paramRequireNumber, err := strconv.ParseInt(paramRequireNumberStr, 0, 64)
 		if err != nil {
@@ -141,18 +199,29 @@ func handleCommands(reqArr []string, conn net.Conn) {
 			handleCommandError(1001, commandName, conn)
 			return
 		}
-		Apply(commandReflect[strings.ToLower(commandName)], []interface{}{reqArr, conn})
+		Apply(commandStruct.Function, []interface{}{reqArr, conn})
 	}
 }
 
-func ping(reqArr []string, conn net.Conn) {
-	jsonString := "{\"a\":\"hello\",\"b\":\"123\",\"books\":[\"1\",\"a\",\"9\",\"4\"]}"
-	_, result := json2Map(jsonString)
-	valueMap = result
+func saveCron() {
+	intervalDuration := time.Duration(saveInterval) * time.Second
+	expireTimer := time.NewTimer(intervalDuration)
+	select {
+	case <-expireTimer.C:
+		go saveGrdb()
+		expireTimer.Reset(intervalDuration)
+	}
+}
+
+func ping(_ []string, conn net.Conn) {
+	//jsonString := "{\"a\":\"hello\",\"b\":\"123\",\"books\":[\"1\",\"a\",\"9\",\"4\"]}"
+	//_, result := json2Map(jsonString)
+	//valueMap = result
 	response(conn, 2, "PONG")
 }
 
 func set(reqArr []string, conn net.Conn) {
+	fmt.Println(reqArr[6])
     valueMap[reqArr[4]] = reqArr[6]
 	response(conn, 2, "OK")
 }
@@ -163,7 +232,7 @@ func get(reqArr []string, conn net.Conn) {
 		response(conn, 2, "(nil)")
     } else {
 		if !checkIfString(result) {
-			handleCommandError(1002, "get", conn)
+			handleCommandError(1002, strings.ToUpper(reqArr[2]), conn)
 			return
 		}
 		response(conn, 1, result.(string))
@@ -180,7 +249,7 @@ func expire(reqArr []string, conn net.Conn) {
 	}
 	expireSeconds, err := strconv.ParseInt(reqArr[6], 0, 64)
 	if err != nil {
-		handleCommandError(1003, "expire", conn)
+		handleCommandError(1003, strings.ToUpper(reqArr[2]), conn)
 		return
 	}
 	result = 1
@@ -193,7 +262,7 @@ func setex(reqArr []string, conn net.Conn) {
 	keyString := reqArr[4]
 	expireSeconds, err := strconv.ParseInt(reqArr[6], 0, 64)
 	if err != nil {
-		handleCommandError(1003, "expire", conn)
+		handleCommandError(1003, strings.ToUpper(reqArr[2]), conn)
 		return
 	}
 	valueMap[keyString] = reqArr[8]
@@ -237,7 +306,7 @@ func rpush(reqArr []string, conn net.Conn, paramNumber int) {
 	valueNumber := paramNumber - 2
 	if ok {
 		if !checkIfSlice(sliceTemp) {
-			handleCommandError(1002, "rpush", conn)
+			handleCommandError(1002, strings.ToUpper(reqArr[2]), conn)
 			return
 		}
 		for i := 1; i <= valueNumber; i++ {
@@ -301,7 +370,7 @@ func llen(reqArr []string, conn net.Conn) {
 func lindex(reqArr []string, conn net.Conn) {
 	index, err := strconv.ParseInt(reqArr[6], 0, 64)
 	if err != nil {
-		handleCommandError(1003, "lindex", conn)
+		handleCommandError(1003, strings.ToUpper(reqArr[2]), conn)
 		return
 	}
 	sliceTemp, ok := valueMap[reqArr[4]]
@@ -309,7 +378,7 @@ func lindex(reqArr []string, conn net.Conn) {
 		fmt.Println(reflect.TypeOf(sliceTemp).String())
 		// judge if target value is slice
 		if !checkIfSlice(sliceTemp) {
-			handleCommandError(1002, "lindex", conn)
+			handleCommandError(1002, strings.ToUpper(reqArr[2]), conn)
 			return
 		}
 		positionIndex := int(index)
@@ -333,7 +402,7 @@ func lrange(reqArr []string, conn net.Conn) {
 	startIndex, startErr := strconv.ParseInt(reqArr[6], 0, 64)
 	endIndex, endErr := strconv.ParseInt(reqArr[8], 0, 64)
 	if startErr != nil || endErr != nil {
-		handleCommandError(1003, "lrange", conn)
+		handleCommandError(1003, strings.ToUpper(reqArr[2]), conn)
 		return
 	}
 	sliceTemp, ok := valueMap[reqArr[4]]
@@ -341,7 +410,7 @@ func lrange(reqArr []string, conn net.Conn) {
 		fmt.Println(reflect.TypeOf(sliceTemp).String())
 		// judge if target value is slice
 		if !checkIfSlice(sliceTemp) {
-			handleCommandError(1002, "lrange", conn)
+			handleCommandError(1002, strings.ToUpper(reqArr[2]), conn)
 			return
 		}
 		startPositionIndex := int(startIndex)
@@ -374,7 +443,7 @@ func ltrim(reqArr []string, conn net.Conn) {
 	startIndex, startErr := strconv.ParseInt(reqArr[6], 0, 64)
 	endIndex, endErr := strconv.ParseInt(reqArr[8], 0, 64)
 	if startErr != nil || endErr != nil {
-		handleCommandError(1003, "ltrim", conn)
+		handleCommandError(1003, strings.ToUpper(reqArr[2]), conn)
 		return
 	}
 	sliceTemp, ok := valueMap[reqArr[4]]
@@ -382,7 +451,7 @@ func ltrim(reqArr []string, conn net.Conn) {
 		fmt.Println(reflect.TypeOf(sliceTemp).String())
 		// judge if target value is slice
 		if !checkIfSlice(sliceTemp) {
-			handleCommandError(1002, "ltrim", conn)
+			handleCommandError(1002, strings.ToUpper(reqArr[2]), conn)
 			return
 		}
 		startPositionIndex := int(startIndex)
@@ -414,17 +483,121 @@ func setExpireTimer(keyString string, expireSeconds int) {
 	}
 }
 
-func save(reqArr []string, conn net.Conn) {
+func hset(reqArr []string, conn net.Conn) {
+	key := reqArr[4]
+	keyMapKey := reqArr[6]
+	keyMapValue := reqArr[8]
+	valueTemp, ok := valueMap[key]
+	result := 0
+	if ok {
+		if !checkIfMap(valueTemp) {
+			handleCommandError(1002, strings.ToUpper(reqArr[2]), conn)
+			return
+		}
+		_, okk := valueTemp.(map[string]interface{})[keyMapKey]
+		if !okk {
+			result = 1
+		}
+	} else {
+		valueTemp = make(map[string]interface{})
+		result = 1
+	}
+	valueTemp.(map[string]interface{})[keyMapKey] = keyMapValue
+	valueMap[key] = valueTemp
+	response(conn, 0, result)
+}
+
+func hgetall(reqArr []string, conn net.Conn) {
+	key := reqArr[4]
+	valueTemp, ok := valueMap[key]
+	if !ok {
+		response(conn, 2, "(empty list or set)")
+		return
+	}
+	if !checkIfMap(valueTemp) {
+		handleCommandError(1002, strings.ToUpper(reqArr[2]), conn)
+		return
+	}
+	result := ""
+	j := 1
+	for mapKey, mapKeyValue := range valueTemp.(map[string]interface{}) {
+		commonResult := strconv.Itoa(j) + ") \"" + mapKey + "\"\n"
+		commonResult += strconv.Itoa(j + 1) + ") \"" + mapKeyValue.(string) + "\"\n"
+		result += commonResult
+		j += 2
+	}
+	response(conn, 2, result[0: len(result) - 1])
+}
+
+func hget(reqArr []string, conn net.Conn) {
+	key := reqArr[4]
+	keyMapKey := reqArr[6]
+	valueTemp, ok := valueMap[key]
+	if !ok || !checkIfMap(valueTemp) {
+		handleCommandError(1002, strings.ToUpper(reqArr[2]), conn)
+		return
+	}
+	keyMapValue, okk := valueTemp.(map[string]interface{})[keyMapKey]
+	if !okk {
+		response(conn, 2, "(nil)")
+		return
+	}
+	response(conn, 1, keyMapValue)
+}
+
+func hlen(reqArr []string, conn net.Conn) {
+	key := reqArr[4]
+	valueTemp, ok := valueMap[key]
+	count := 0
+	if !ok {
+		response(conn, 0, count)
+		return
+	}
+	if !checkIfMap(valueTemp) {
+		handleCommandError(1002, strings.ToUpper(reqArr[2]), conn)
+		return
+	}
+	for range valueTemp.(map[string]interface{}) {
+		count++
+	}
+	response(conn, 0, count)
+}
+
+func hmset(reqArr []string, conn net.Conn, paramNumber int) {
+	key := reqArr[4]
+	valueTemp, ok := valueMap[key]
+	result := 0
+	if ok {
+		if !checkIfMap(valueTemp) {
+			handleCommandError(1002, strings.ToUpper(reqArr[2]), conn)
+			return
+		}
+	} else {
+		valueTemp = make(map[string]interface{})
+	}
+	for i := 0; i < (paramNumber - 2) / 2; i++ {
+		keyMapKey := reqArr[6 + 4 * i]
+		keyMapValue := reqArr[8 + 4* i]
+		_, okk := valueTemp.(map[string]interface{})[keyMapKey]
+		if !okk {
+			result++
+		}
+		valueTemp.(map[string]interface{})[keyMapKey] = keyMapValue
+	}
+	valueMap[key] = valueTemp
+	response(conn, 0, result)
+}
+
+func save(_ []string, conn net.Conn) {
 	response(conn, 2, "OK")
 	go saveGrdb()
 }
 
 func saveGrdb() {
-
 	dumpJsonExist := checkFileIsExist(originDumpFileName)
 	code, storeString := map2Json(valueMap)
 	if code != 0 {
-		fmt.Println("error occurs when map to json")
+		fmt.Println(time.Now(),":error occurs when map to json")
 		return
 	}
 	targetFileName := originDumpFileName
@@ -448,39 +621,39 @@ func resgrdb() {
 	}
 	content, err := ioutil.ReadFile(originDumpFileName)
 	if err != nil {
-		fmt.Println("ioutil ReadFile error: ", err)
+		fmt.Println(time.Now(),":ioutil ReadFile error: ", err)
 		return
 	}
-	//fmt.Println("content: ", string(content))
+	//fmt.Println(time.Now(),":content: ", string(content))
 	code, result := json2Map(string(content))
 	if code != 0 {
-		fmt.Println("error occurs when json to map")
+		fmt.Println(time.Now(),":error occurs when json to map")
 		return
 	}
 	valueMap = result
+	fmt.Println(time.Now(),":DB loaded from disk")
 }
 
-func Apply(f interface{}, args []interface{})([]reflect.Value){
+func Apply(f interface{}, args []interface{}) {
     fun := reflect.ValueOf(f)
     in := make([]reflect.Value, len(args))
     for k, param := range args{
         in[k] = reflect.ValueOf(param)
     }
-    r := fun.Call(in)
-    return r
+    _ = fun.Call(in)
 }
 
 func response(conn net.Conn, responseType int, message interface{}) {
 	switch responseType {
 	// number
 	case 0:
-		conn.Write([]byte(":" + strconv.Itoa(message.(int)) + "\r\n"))
+		_, _ = conn.Write([]byte(":" + strconv.Itoa(message.(int)) + "\r\n"))
 	// "string"
 	case 1:
-		conn.Write([]byte("+" + stringWithQuotation(message.(string)) + "\r\n"))
+		_, _ = conn.Write([]byte("+" + stringWithQuotation(message.(string)) + "\r\n"))
 	// string
 	case 2:
-		conn.Write([]byte("+" + message.(string) + "\r\n"))
+		_, _ = conn.Write([]byte("+" + message.(string) + "\r\n"))
 	}
 }
 
@@ -488,19 +661,22 @@ func response(conn net.Conn, responseType int, message interface{}) {
 func handleCommandError(errorCode int, commandName string, conn net.Conn) {
 	switch errorCode {
 	case 1000:
-		conn.Write([]byte("+(error) ERR unknown command '" + commandName + "' \r\n"))
+		_, _ = conn.Write([]byte("+(error) ERR unknown command '" + commandName + "' \r\n"))
 	case 1001:
-		conn.Write([]byte("+(error) ERR wrong number of arguments for " + commandName + " command\r\n"))
+		_, _ = conn.Write([]byte("+(error) ERR wrong number of arguments for " + commandName + " command\r\n"))
 	case 1002:
-		conn.Write([]byte("+(error) WRONGTYPE Operation against a key holding the wrong kind of value\r\n"))
+		_, _ = conn.Write([]byte("+(error) WRONGTYPE Operation against a key holding the wrong kind of value\r\n"))
 	case 1003:
-		conn.Write([]byte("+(error) ERR value is not an integer or out of range\r\n"))
-	case 1004:
+		_, _ = conn.Write([]byte("+(error) ERR value is not an integer or out of range\r\n"))
 
 	default:
-		conn.Write([]byte("+(error) unknown error\r\n"))
+		_, _ = conn.Write([]byte("+(error) unknown error\r\n"))
 	}
-	fmt.Println("this connect end")
+	//fmt.Println(time.Now(),":this connect end")
+}
+
+func checkIfMap(target interface{}) bool {
+	return strings.Contains(reflect.TypeOf(target).String(), "map")
 }
 
 func checkIfString(target interface{}) bool {
