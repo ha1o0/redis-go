@@ -13,55 +13,85 @@ import (
 	"time"
 )
 
-var commandsMap = map[string]string{
-	"PING": "1",
-	"GET": "2",
-	"SET": "3",
-	"EXPIRE": "3",
-	"SETEX": "4",
-	"SETNX": "3",
-	"EXISTS": "2",
-	"DEL": "2",
-	"RPUSH": ">=3",
-	"RPOP": "2",
-	"LPOP": "2",
-	"LLEN": "2",
-	"LINDEX": "3",
-	"LRANGE": "4",
-	"LTRIM": "4",
-	"SAVE": "1",
-	"RESGRDB": "1",
-	"HSET": "4",
-	"HGETALL": "2",
-	"HGET": "3",
-	"HLEN": "2",
-	"HMSET": ">=4%", //%偶数#奇数
+type command struct {
+	ParamNumber string
+	Function interface{}
 }
 
-var commandReflect = map[string]interface{}{
-    "ping": ping,
-    "get": get,
-    "set": set,
-    "expire": expire,
-    "setex": setex,
-    "setnx": setnx,
-    "exists": exists,
-    "del": del,
-    "rpush": rpush,
-    "rpop": rpop,
-    "lpop": lpop,
-    "llen": llen,
-    "lindex": lindex,
-    "lrange": lrange,
-    "ltrim": ltrim,
-    "save": save,
-    "resgrdb": resgrdb,
-    "hset": hset,
-    "hgetall": hgetall,
-    "hget": hget,
-    "hlen": hlen,
-    "hmset": hmset,
+var commandsMap = map[string]command {
+	"PING": {"1", ping},
+	"GET": {"2", get},
+	"SET": {"3", set},
+	"EXPIRE": {"3", expire},
+	"SETEX": {"4", setex},
+	"SETNX": {"3", setnx},
+	"EXISTS": {"2", exists},
+	"DEL": {"2", del},
+	"RPUSH": {">=3", rpush},
+	"RPOP": {"2", rpop},
+	"LPOP": {"2", lpop},
+	"LLEN": {"2", llen},
+	"LINDEX": {"3", lindex},
+	"LRANGE": {"4", lrange},
+	"LTRIM": {"4", ltrim},
+	"SAVE": {"1", save},
+	"RESGRDB": {"1", resgrdb},
+	"HSET": {"4", hset},
+	"HGETALL": {"2", hgetall},
+	"HGET": {"3", hget},
+	"HLEN": {"2", hlen},
+	"HMSET": {">=4%", hmset},//%偶数#奇数
 }
+
+//var commandsMap = map[string]string{
+//	"PING": "1",
+//	"GET": "2",
+//	"SET": "3",
+//	"EXPIRE": "3",
+//	"SETEX": "4",
+//	"SETNX": "3",
+//	"EXISTS": "2",
+//	"DEL": "2",
+//	"RPUSH": ">=3",
+//	"RPOP": "2",
+//	"LPOP": "2",
+//	"LLEN": "2",
+//	"LINDEX": "3",
+//	"LRANGE": "4",
+//	"LTRIM": "4",
+//	"SAVE": "1",
+//	"RESGRDB": "1",
+//	"HSET": "4",
+//	"HGETALL": "2",
+//	"HGET": "3",
+//	"HLEN": "2",
+//	"HMSET": ">=4%", //%偶数#奇数
+//}
+
+//var commandReflect = map[string]interface{}{
+//    "ping": ping,
+//    "get": get,
+//    "set": set,
+//    "expire": expire,
+//    "setex": setex,
+//    "setnx": setnx,
+//    "exists": exists,
+//    "del": del,
+//    "rpush": rpush,
+//    "rpop": rpop,
+//    "lpop": lpop,
+//    "llen": llen,
+//    "lindex": lindex,
+//    "lrange": lrange,
+//    "ltrim": ltrim,
+//    "save": save,
+//    "resgrdb": resgrdb,
+//    "hset": hset,
+//    "hgetall": hgetall,
+//    "hget": hget,
+//    "hlen": hlen,
+//    "hmset": hmset,
+//}
 
 var valueMap = make(map[string]interface{})
 const originDumpFileName = "./dump.json"
@@ -119,7 +149,7 @@ func handleStuff(conn net.Conn) {
 func handleCommands(reqArr []string, conn net.Conn) {
 	paramNumberStr := reqArr[0]
 	commandName := strings.ToUpper(reqArr[2])
-	_, ok := commandsMap[commandName]
+	commandStruct, ok := commandsMap[commandName]
 	if !ok {
 		handleCommandError(1000, commandName, conn)
 		return
@@ -130,7 +160,7 @@ func handleCommands(reqArr []string, conn net.Conn) {
 		handleCommandError(0, commandName, conn)
 		return
 	}
-	paramRequireNumberStr := commandsMap[commandName]
+	paramRequireNumberStr := commandStruct.ParamNumber
 	if strings.Contains(paramRequireNumberStr, ">=") {
 		numberStr := strings.TrimPrefix(paramRequireNumberStr, ">=")
 		if strings.Contains(paramRequireNumberStr, "%") {
@@ -157,7 +187,7 @@ func handleCommands(reqArr []string, conn net.Conn) {
 				return
 			}
 		}
-		Apply(commandReflect[strings.ToLower(commandName)], []interface{}{reqArr, conn, int(paramNumber)})
+		Apply(commandStruct.Function, []interface{}{reqArr, conn, int(paramNumber)})
 	} else {
 		paramRequireNumber, err := strconv.ParseInt(paramRequireNumberStr, 0, 64)
 		if err != nil {
@@ -169,7 +199,7 @@ func handleCommands(reqArr []string, conn net.Conn) {
 			handleCommandError(1001, commandName, conn)
 			return
 		}
-		Apply(commandReflect[strings.ToLower(commandName)], []interface{}{reqArr, conn})
+		Apply(commandStruct.Function, []interface{}{reqArr, conn})
 	}
 }
 
@@ -183,7 +213,7 @@ func saveCron() {
 	}
 }
 
-func ping(reqArr []string, conn net.Conn) {
+func ping(_ []string, conn net.Conn) {
 	//jsonString := "{\"a\":\"hello\",\"b\":\"123\",\"books\":[\"1\",\"a\",\"9\",\"4\"]}"
 	//_, result := json2Map(jsonString)
 	//valueMap = result
@@ -558,7 +588,7 @@ func hmset(reqArr []string, conn net.Conn, paramNumber int) {
 	response(conn, 0, result)
 }
 
-func save(reqArr []string, conn net.Conn) {
+func save(_ []string, conn net.Conn) {
 	response(conn, 2, "OK")
 	go saveGrdb()
 }
@@ -604,27 +634,26 @@ func resgrdb() {
 	fmt.Println(time.Now(),":DB loaded from disk")
 }
 
-func Apply(f interface{}, args []interface{})([]reflect.Value){
+func Apply(f interface{}, args []interface{}) {
     fun := reflect.ValueOf(f)
     in := make([]reflect.Value, len(args))
     for k, param := range args{
         in[k] = reflect.ValueOf(param)
     }
-    r := fun.Call(in)
-    return r
+    _ = fun.Call(in)
 }
 
 func response(conn net.Conn, responseType int, message interface{}) {
 	switch responseType {
 	// number
 	case 0:
-		conn.Write([]byte(":" + strconv.Itoa(message.(int)) + "\r\n"))
+		_, _ = conn.Write([]byte(":" + strconv.Itoa(message.(int)) + "\r\n"))
 	// "string"
 	case 1:
-		conn.Write([]byte("+" + stringWithQuotation(message.(string)) + "\r\n"))
+		_, _ = conn.Write([]byte("+" + stringWithQuotation(message.(string)) + "\r\n"))
 	// string
 	case 2:
-		conn.Write([]byte("+" + message.(string) + "\r\n"))
+		_, _ = conn.Write([]byte("+" + message.(string) + "\r\n"))
 	}
 }
 
@@ -632,17 +661,16 @@ func response(conn net.Conn, responseType int, message interface{}) {
 func handleCommandError(errorCode int, commandName string, conn net.Conn) {
 	switch errorCode {
 	case 1000:
-		conn.Write([]byte("+(error) ERR unknown command '" + commandName + "' \r\n"))
+		_, _ = conn.Write([]byte("+(error) ERR unknown command '" + commandName + "' \r\n"))
 	case 1001:
-		conn.Write([]byte("+(error) ERR wrong number of arguments for " + commandName + " command\r\n"))
+		_, _ = conn.Write([]byte("+(error) ERR wrong number of arguments for " + commandName + " command\r\n"))
 	case 1002:
-		conn.Write([]byte("+(error) WRONGTYPE Operation against a key holding the wrong kind of value\r\n"))
+		_, _ = conn.Write([]byte("+(error) WRONGTYPE Operation against a key holding the wrong kind of value\r\n"))
 	case 1003:
-		conn.Write([]byte("+(error) ERR value is not an integer or out of range\r\n"))
-	case 1004:
+		_, _ = conn.Write([]byte("+(error) ERR value is not an integer or out of range\r\n"))
 
 	default:
-		conn.Write([]byte("+(error) unknown error\r\n"))
+		_, _ = conn.Write([]byte("+(error) unknown error\r\n"))
 	}
 	//fmt.Println(time.Now(),":this connect end")
 }
