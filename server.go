@@ -49,6 +49,9 @@ const socketAP = "127.0.0.1:6378"
 const saveInterval = 60
 
 func main() {
+	data := [][]int{{2},{3, 4},{6,5,7},{4,1,8,3},{1,2,2,3,4}}
+	result := minimumTotal1(data)
+	fmt.Println(result)
 	fmt.Println(time.Now(),":Server initialized")
 	checkIfMap(valueMap)
 	resgrdb()
@@ -62,7 +65,12 @@ func startTcpServer() {
 	listener, err := net.ListenTCP("tcp", tcpAddr)
 	checkError(err)
 	for {
+		// 等待客户端建立连接
 		conn, err := listener.AcceptTCP()
+		//if err != nil {
+		//	fmt.Printf("accept failed, err: %v\n", err)
+		//	continue
+		//}
 		checkError(err)
 		go handleStuff(conn)
 	}
