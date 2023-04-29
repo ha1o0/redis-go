@@ -13,5 +13,5 @@ the redis server that is implemented by golang
 
 + 有关rpc
   - 安装`go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest`
-  - 使用`protoc --go-grpc_out=./protos ./protos/hello.proto`
+  - 生成`pb.go`和`_grpc.pb.go`使用`protoc --go_out=./protos --go-grpc_out=./protos ./protos/hello.proto`
   -
