@@ -49,10 +49,11 @@ const socketAP = "127.0.0.1:6378"
 const saveInterval = 60
 
 func main() {
+	connectRpc()
 	data := [][]int{{2},{3, 4},{6,5,7},{4,1,8,3},{1,2,2,3,4}}
 	result := minimumTotal1(data)
 	fmt.Println(result)
-	fmt.Println(time.Now(),":Server initialized")
+	fmt.Println(time.Now(), ":Server initialized")
 	checkIfMap(valueMap)
 	resgrdb()
 	go saveCron()
