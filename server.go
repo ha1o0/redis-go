@@ -15,42 +15,44 @@ import (
 
 type command struct {
 	ParamNumber string //%偶数#奇数
-	Function interface{}
+	Function    interface{}
 }
 
-var commandsMap = map[string]command {
-	"PING": {"1", ping},
-	"GET": {"2", get},
-	"SET": {"3", set},
-	"EXPIRE": {"3", expire},
-	"SETEX": {"4", setex},
-	"SETNX": {"3", setnx},
-	"EXISTS": {"2", exists},
-	"DEL": {"2", del},
-	"RPUSH": {">=3", rpush},
-	"RPOP": {"2", rpop},
-	"LPOP": {"2", lpop},
-	"LLEN": {"2", llen},
-	"LINDEX": {"3", lindex},
-	"LRANGE": {"4", lrange},
-	"LTRIM": {"4", ltrim},
-	"SAVE": {"1", save},
+var commandsMap = map[string]command{
+	"PING":    {"1", ping},
+	"GET":     {"2", get},
+	"SET":     {"3", set},
+	"EXPIRE":  {"3", expire},
+	"SETEX":   {"4", setex},
+	"SETNX":   {"3", setnx},
+	"EXISTS":  {"2", exists},
+	"DEL":     {"2", del},
+	"RPUSH":   {">=3", rpush},
+	"RPOP":    {"2", rpop},
+	"LPOP":    {"2", lpop},
+	"LLEN":    {"2", llen},
+	"LINDEX":  {"3", lindex},
+	"LRANGE":  {"4", lrange},
+	"LTRIM":   {"4", ltrim},
+	"SAVE":    {"1", save},
 	"RESGRDB": {"1", resgrdb},
-	"HSET": {"4", hset},
+	"HSET":    {"4", hset},
 	"HGETALL": {"2", hgetall},
-	"HGET": {"3", hget},
-	"HLEN": {"2", hlen},
-	"HMSET": {">=4%", hmset},
+	"HGET":    {"3", hget},
+	"HLEN":    {"2", hlen},
+	"HMSET":   {">=4%", hmset},
 }
 
 var valueMap = make(map[string]interface{})
+
 const originDumpFileName = "./dump.json"
 const socketAP = "127.0.0.1:6378"
 const saveInterval = 60
 
 func main() {
 	connectRpc()
-	data := [][]int{{2},{3, 4},{6,5,7},{4,1,8,3},{1,2,2,3,4}}
+	listenRpc()
+	data := [][]int{{2}, {3, 4}, {6, 5, 7}, {4, 1, 8, 3}, {1, 2, 2, 3, 4}}
 	result := minimumTotal1(data)
 	fmt.Println(result)
 	fmt.Println(time.Now(), ":Server initialized")
@@ -89,7 +91,7 @@ func handleStuff(conn net.Conn) {
 	defer conn.Close()
 	for {
 		n, err := conn.Read(buf)
-		fmt.Println(time.Now(),":req", n)
+		fmt.Println(time.Now(), ":req", n)
 		if n == 0 || err != nil {
 			saveGrdb()
 			break
@@ -99,8 +101,8 @@ func handleStuff(conn net.Conn) {
 		fmt.Println(rAddr.String())
 		req := string(buf[:n])
 		reqArr := strings.Split(req, "\r\n")
-		reqArr = reqArr[0:len(reqArr)-1]
-		fmt.Println(time.Now(),":receive the client message：", reqArr)
+		reqArr = reqArr[0 : len(reqArr)-1]
+		fmt.Println(time.Now(), ":receive the client message：", reqArr)
 		handleCommands(reqArr, conn)
 	}
 }
@@ -130,7 +132,7 @@ func handleCommands(reqArr []string, conn net.Conn) {
 				handleCommandError(0, commandName, conn)
 				return
 			}
-			if paramNumber < paramRequireNumber || paramNumber % 2 != 0 {
+			if paramNumber < paramRequireNumber || paramNumber%2 != 0 {
 				handleCommandError(1001, commandName, conn)
 				return
 			}
@@ -181,21 +183,21 @@ func ping(_ []string, conn net.Conn) {
 
 func set(reqArr []string, conn net.Conn) {
 	fmt.Println(reqArr[6])
-    valueMap[reqArr[4]] = reqArr[6]
+	valueMap[reqArr[4]] = reqArr[6]
 	response(conn, 2, "OK")
 }
 
 func get(reqArr []string, conn net.Conn) {
-    result, ok := valueMap[reqArr[4]]
-    if !ok {
+	result, ok := valueMap[reqArr[4]]
+	if !ok {
 		response(conn, 2, "(nil)")
-    } else {
+	} else {
 		if !checkIfString(result) {
 			handleCommandError(1002, strings.ToUpper(reqArr[2]), conn)
 			return
 		}
 		response(conn, 1, result.(string))
-    }
+	}
 }
 
 func expire(reqArr []string, conn net.Conn) {
@@ -269,15 +271,15 @@ func rpush(reqArr []string, conn net.Conn, paramNumber int) {
 			return
 		}
 		for i := 1; i <= valueNumber; i++ {
-			sliceTemp = append(sliceTemp.([]interface{}), reqArr[2 * i + 4])
+			sliceTemp = append(sliceTemp.([]interface{}), reqArr[2*i+4])
 		}
 		valueMap[reqArr[4]] = sliceTemp
 		response(conn, 0, len(sliceTemp.([]interface{})))
 	} else {
 		newSliceTemp := []interface{}{}
 		for i := 1; i <= valueNumber; i++ {
-			fmt.Println(reqArr[2 * i + 4])
-			newSliceTemp = append(newSliceTemp, reqArr[2 * i + 4])
+			fmt.Println(reqArr[2*i+4])
+			newSliceTemp = append(newSliceTemp, reqArr[2*i+4])
 			fmt.Println(newSliceTemp)
 		}
 		valueMap[reqArr[4]] = newSliceTemp
@@ -289,7 +291,7 @@ func rpop(reqArr []string, conn net.Conn) {
 	sliceTemp, ok := valueMap[reqArr[4]]
 	if ok {
 		sliceLength := len(sliceTemp.([]interface{}))
-		lastElement := sliceTemp.([]interface{})[sliceLength - 1].(string)
+		lastElement := sliceTemp.([]interface{})[sliceLength-1].(string)
 		if sliceLength == 1 {
 			delete(valueMap, reqArr[4])
 		} else {
@@ -423,7 +425,7 @@ func ltrim(reqArr []string, conn net.Conn) {
 			response(conn, 2, "(empty list or set)")
 			return
 		}
-		valueMap[reqArr[4]] = targetSlice[startPositionIndex:endPositionIndex + 1]
+		valueMap[reqArr[4]] = targetSlice[startPositionIndex : endPositionIndex+1]
 		response(conn, 2, "OK")
 	} else {
 		response(conn, 2, "(empty list or set)")
@@ -481,11 +483,11 @@ func hgetall(reqArr []string, conn net.Conn) {
 	j := 1
 	for mapKey, mapKeyValue := range valueTemp.(map[string]interface{}) {
 		commonResult := strconv.Itoa(j) + ") \"" + mapKey + "\"\n"
-		commonResult += strconv.Itoa(j + 1) + ") \"" + mapKeyValue.(string) + "\"\n"
+		commonResult += strconv.Itoa(j+1) + ") \"" + mapKeyValue.(string) + "\"\n"
 		result += commonResult
 		j += 2
 	}
-	response(conn, 2, result[0: len(result) - 1])
+	response(conn, 2, result[0:len(result)-1])
 }
 
 func hget(reqArr []string, conn net.Conn) {
@@ -534,9 +536,9 @@ func hmset(reqArr []string, conn net.Conn, paramNumber int) {
 	} else {
 		valueTemp = make(map[string]interface{})
 	}
-	for i := 0; i < (paramNumber - 2) / 2; i++ {
-		keyMapKey := reqArr[6 + 4 * i]
-		keyMapValue := reqArr[8 + 4* i]
+	for i := 0; i < (paramNumber-2)/2; i++ {
+		keyMapKey := reqArr[6+4*i]
+		keyMapValue := reqArr[8+4*i]
 		_, okk := valueTemp.(map[string]interface{})[keyMapKey]
 		if !okk {
 			result++
@@ -556,7 +558,7 @@ func saveGrdb() {
 	dumpJsonExist := checkFileIsExist(originDumpFileName)
 	code, storeString := map2Json(valueMap)
 	if code != 0 {
-		fmt.Println(time.Now(),":error occurs when map to json")
+		fmt.Println(time.Now(), ":error occurs when map to json")
 		return
 	}
 	targetFileName := originDumpFileName
@@ -580,26 +582,26 @@ func resgrdb() {
 	}
 	content, err := ioutil.ReadFile(originDumpFileName)
 	if err != nil {
-		fmt.Println(time.Now(),":ioutil ReadFile error: ", err)
+		fmt.Println(time.Now(), ":ioutil ReadFile error: ", err)
 		return
 	}
 	//fmt.Println(time.Now(),":content: ", string(content))
 	code, result := json2Map(string(content))
 	if code != 0 {
-		fmt.Println(time.Now(),":error occurs when json to map")
+		fmt.Println(time.Now(), ":error occurs when json to map")
 		return
 	}
 	valueMap = result
-	fmt.Println(time.Now(),":DB loaded from disk")
+	fmt.Println(time.Now(), ":DB loaded from disk")
 }
 
 func Apply(f interface{}, args []interface{}) {
-    fun := reflect.ValueOf(f)
-    in := make([]reflect.Value, len(args))
-    for k, param := range args{
-        in[k] = reflect.ValueOf(param)
-    }
-    _ = fun.Call(in)
+	fun := reflect.ValueOf(f)
+	in := make([]reflect.Value, len(args))
+	for k, param := range args {
+		in[k] = reflect.ValueOf(param)
+	}
+	_ = fun.Call(in)
 }
 
 func response(conn net.Conn, responseType int, message interface{}) {
